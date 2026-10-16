@@ -1,25 +1,34 @@
-# Sidelight
+<h1 align="center">Sidelight</h1>
 
-**A side light on whatever your omp agent explains.** Read long explanations full-screen, and go off on a tangent about any passage in a side thread that never enters your conversation.
+<p align="center"><b>Long answers from your coding agent, made readable.</b></p>
 
-![The reader: moving through a document, selecting a passage, asking about it, and following up](assets/reader.gif)
+<p align="center">
+  <a href="https://www.npmjs.com/package/omp-sidelight"><img src="https://img.shields.io/npm/v/omp-sidelight?color=cb3837" alt="npm"></a>
+  <a href="https://github.com/Mannan-Goyal/omp-sidelight/actions/workflows/test.yml"><img src="https://github.com/Mannan-Goyal/omp-sidelight/actions/workflows/test.yml/badge.svg" alt="tests"></a>
+  <a href="https://github.com/can1357/oh-my-pi"><img src="https://img.shields.io/badge/omp-%E2%89%A518.11-5865F2" alt="omp 18.11 or newer"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
+</p>
 
-When an answer would be long, the agent writes it as a markdown document instead of printing it into the chat. You open it with `/read` (or `ctrl+n`), select any sentence, table or paragraph, and ask about it. The answer arrives in a side thread that knows your whole conversation, but nothing you ask there is added to it, so your main context stays clean.
+![Sidelight: reading a long answer, selecting a passage, asking about it and following up](https://raw.githubusercontent.com/Mannan-Goyal/omp-sidelight/main/assets/reader.gif)
 
-- **Ask about exactly what you're reading.** Select lines with the keyboard or the mouse, press `a` to type a question, or `1`–`6` for a quick ask.
-- **Revisions without rereading.** The agent edits the document in place. The reader marks what changed since you last read, and `d` jumps between the changes.
-- **Threads stay attached to their passage**, even when the document is edited. A thread whose passage was rewritten moves to "Passage changed".
-- **It looks like omp.** It uses omp's own markdown renderer, chat composer and loader.
+When your agent explains something big, you get a wall of text in a scrolling chat. It's hard to read, harder to understand, and asking about one paragraph means a new turn that drags the whole conversation off course.
+
+**Sidelight gives long answers a proper page, and lets you question any line of it on the side.** It's a plugin for [omp](https://github.com/can1357/oh-my-pi).
+
+- **Read it like a document, not a chat log.** Full screen, with rendered tables and diagrams, an outline and search.
+- **Ask about exactly the part you don't get.** Select a sentence and press a key. The answer arrives in a side thread that knows your whole conversation.
+- **Your conversation stays clean.** Side questions never enter the agent's context, so the main session stays on topic.
+- **Revisions show what changed.** The agent edits the page in place, and the changed blocks are marked, so you never reread everything.
 
 ## Install
 
-You need [omp](https://github.com/can1357/oh-my-pi) 18.11 or newer.
+You need omp 18.11 or newer.
 
 ```sh
-omp plugin install github:Mannan-Goyal/omp-sidelight
+omp plugin install omp-sidelight
 ```
 
-Then restart omp. Or, from inside omp, add the repository as a marketplace:
+Restart omp, and you're set. You can also install straight from GitHub (`omp plugin install github:Mannan-Goyal/omp-sidelight`) or from inside omp:
 
 ```text
 /marketplace add Mannan-Goyal/omp-sidelight
@@ -32,7 +41,7 @@ To uninstall: `omp plugin uninstall omp-sidelight`.
 
 The first time you open the reader, it offers a two-minute guided tour. The tour opens a sample document and walks you through every feature, moving on only after you've actually tried each step. Replay it any time with `/read tour`, or press `?` in the reader for every key.
 
-![The first-run tour](assets/tour.gif)
+![The first-run tour](https://raw.githubusercontent.com/Mannan-Goyal/omp-sidelight/main/assets/tour.gif)
 
 ## Using it
 
@@ -124,7 +133,7 @@ The same icon marks the passage in the document's left margin.
 
 | A thread | The thread list | Every key (`?`) |
 |---|---|---|
-| ![A thread](assets/thread.png) | ![The thread list](assets/threads.png) | ![Help](assets/help.png) |
+| ![A thread](https://raw.githubusercontent.com/Mannan-Goyal/omp-sidelight/main/assets/thread.png) | ![The thread list](https://raw.githubusercontent.com/Mannan-Goyal/omp-sidelight/main/assets/threads.png) | ![Help](https://raw.githubusercontent.com/Mannan-Goyal/omp-sidelight/main/assets/help.png) |
 
 ## What stays private
 
@@ -139,7 +148,7 @@ The same icon marks the passage in the document's left margin.
 
 ## How it works
 
-[docs/design.md](docs/design.md) covers the architecture, the data layout and the side-turn contract. [docs/research.md](docs/research.md) lists the sources behind the design choices.
+[docs/design.md](https://github.com/Mannan-Goyal/omp-sidelight/blob/main/docs/design.md) covers the architecture, the data layout and the side-turn contract. [docs/research.md](https://github.com/Mannan-Goyal/omp-sidelight/blob/main/docs/research.md) lists the sources behind the design choices.
 
 ## Development
 

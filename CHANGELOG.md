@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- Published to npm: `omp plugin install omp-sidelight`.
+- The README works on npm too (absolute image links), with badges and a clearer pitch.
+- The npm package no longer ships the demo GIFs and screenshots.
+
 ## 0.1.0
 
 First public release of Sidelight.

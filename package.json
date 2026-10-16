@@ -1,7 +1,7 @@
 {
 	"name": "omp-sidelight",
-	"version": "0.1.0",
-	"description": "Sidelight for omp: a full-screen reader for long explanations. Select any passage and ask about it in side threads that never enter the conversation.",
+	"version": "0.1.1",
+	"description": "Long answers from your coding agent, made readable. A full-screen reader for omp where you can ask about any passage on the side, without derailing the conversation.",
 	"type": "module",
 	"license": "MIT",
 	"author": "Mannan Goyal <mannang6@gmail.com>",
@@ -11,8 +11,8 @@
 	},
 	"homepage": "https://github.com/Mannan-Goyal/omp-sidelight#readme",
 	"bugs": "https://github.com/Mannan-Goyal/omp-sidelight/issues",
-	"keywords": ["omp", "omp-plugin", "oh-my-pi", "coding-agent", "reader", "tui"],
-	"files": ["src", "docs", "assets", "README.md", "CHANGELOG.md", "LICENSE"],
+	"keywords": ["omp", "omp-plugin", "oh-my-pi", "coding-agent", "ai", "llm", "agent", "reader", "markdown", "explain", "tui", "terminal"],
+	"files": ["src", "docs", "README.md", "CHANGELOG.md", "LICENSE"],
 	"omp": {
 		"extensions": ["./src/index.ts"]
 	},
