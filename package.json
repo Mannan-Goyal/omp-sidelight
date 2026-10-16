@@ -1,0 +1,37 @@
+{
+	"name": "omp-sidelight",
+	"version": "0.1.0",
+	"description": "Sidelight for omp: a full-screen reader for long explanations. Select any passage and ask about it in side threads that never enter the conversation.",
+	"type": "module",
+	"license": "MIT",
+	"author": "Mannan Goyal <mannang6@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Mannan-Goyal/omp-sidelight.git"
+	},
+	"homepage": "https://github.com/Mannan-Goyal/omp-sidelight#readme",
+	"bugs": "https://github.com/Mannan-Goyal/omp-sidelight/issues",
+	"keywords": ["omp", "omp-plugin", "oh-my-pi", "coding-agent", "reader", "tui"],
+	"files": ["src", "docs", "assets", "README.md", "CHANGELOG.md", "LICENSE"],
+	"omp": {
+		"extensions": ["./src/index.ts"]
+	},
+	"engines": {
+		"omp": ">=18.11.0"
+	},
+	"peerDependencies": {
+		"@oh-my-pi/pi-ai": "*",
+		"@oh-my-pi/pi-coding-agent": "*",
+		"@oh-my-pi/pi-tui": "*",
+		"@oh-my-pi/pi-utils": "*"
+	},
+	"peerDependenciesMeta": {
+		"@oh-my-pi/pi-ai": { "optional": true },
+		"@oh-my-pi/pi-coding-agent": { "optional": true },
+		"@oh-my-pi/pi-tui": { "optional": true },
+		"@oh-my-pi/pi-utils": { "optional": true }
+	},
+	"scripts": {
+		"test": "node --test test/*.test.ts"
+	}
+}

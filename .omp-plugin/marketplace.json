@@ -1,0 +1,14 @@
+{
+	"name": "omp-sidelight",
+	"owner": { "name": "Mannan Goyal", "email": "mannang6@gmail.com" },
+	"metadata": { "description": "Sidelight, the document reader for omp", "version": "0.1.0" },
+	"plugins": [
+		{
+			"name": "sidelight",
+			"description": "Read long explanations full-screen and ask about any passage in side threads that never enter the conversation.",
+			"source": "./",
+			"category": "productivity",
+			"homepage": "https://github.com/Mannan-Goyal/omp-sidelight"
+		}
+	]
+}
