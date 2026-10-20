@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- The reader shows a scrollbar on the document's right edge. The thumb's size shows how much of the document fits on screen, and its position shows where you are. Unless the window is tiny, it touches the top only at the start and the bottom only at the end. It disappears when the whole document fits.
+
 ## 0.1.1
 
 - Published to npm: `omp plugin install omp-sidelight`.

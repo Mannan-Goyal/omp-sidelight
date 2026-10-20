@@ -15,7 +15,7 @@ When your agent explains something big, you get a wall of text in a scrolling ch
 
 **Sidelight gives long answers a proper page, and lets you question any line of it on the side.** It's a plugin for [omp](https://github.com/can1357/oh-my-pi).
 
-- **Read it like a document, not a chat log.** Full screen, with rendered tables and diagrams, an outline and search.
+- **Read it like a document, not a chat log.** Full screen, with rendered tables and diagrams, an outline, search, and a scrollbar that shows how long the document is and where you are.
 - **Ask about exactly the part you don't get.** Select a sentence and press a key. The answer arrives in a side thread that knows your whole conversation.
 - **Your conversation stays clean.** Side questions never enter the agent's context, so the main session stays on topic.
 - **Revisions show what changed.** The agent edits the page in place, and the changed blocks are marked, so you never reread everything.

@@ -19,6 +19,7 @@ import { PRESETS, presetFor } from "./ask";
 import { TOUR_STEPS, type Tour, type TourEvent } from "./tour";
 import { type Block, displaySource, normalizeText, splitBlocks } from "./blocks";
 import type { OpenDoc, Runtime } from "./runtime";
+import { scrollThumb } from "./scrollbar";
 import type { Anchor, DocMeta, Thread } from "./store";
 
 interface Row {
@@ -999,12 +1000,15 @@ export class Reader implements Component {
 			const held = markers.get(span.start);
 			if (held === undefined || rank(group) < rank(held)) markers.set(span.start, group);
 		}
+		// The last column shows where the visible rows sit in the whole document.
+		const thumb = scrollThumb(layout.rows.length, body, this.#scroll);
+		const bar = (i: number): string => (thumb && i >= thumb.start && i < thumb.start + thumb.size ? t.fg("muted", "▐") : " ");
 		const out: string[] = [];
 		for (let i = 0; i < body; i++) {
 			const index = this.#scroll + i;
 			const row = layout.rows[index];
 			if (!row) {
-				out.push(fit("", docW));
+				out.push(`${fit("", docW - 1)}${bar(i)}`);
 				continue;
 			}
 			const changed = row.block >= 0 && this.#changed.has(row.block) ? t.fg("accent", "▎") : " ";
@@ -1015,7 +1019,7 @@ export class Reader implements Component {
 			const caret = isCursor ? t.fg("accent", "›") : hovered ? t.fg("dim", "┃") : " ";
 			const selected = sel !== null && index >= sel.start && index <= sel.end;
 			const content = selected ? highlightRow(row.text, contentW, s => t.bg("selectedBg", s)) : fit(row.text, contentW);
-			out.push(`${changed}${thread}${caret}${content} `);
+			out.push(`${changed}${thread}${caret}${content}${bar(i)}`);
 		}
 		return out;
 	}

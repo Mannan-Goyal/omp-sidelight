@@ -45,6 +45,7 @@ you ── /read or ctrl+n ──▶ full-screen reader (alt screen, like less/v
 | **Anchors that survive edits**; moved text retargets, changed text shows as *outdated* | Revisions should not orphan your questions | Hypothesis, W3C TextQuoteSelector, GitHub "outdated" |
 | **Change markers since you last read** + jump to next change | You only reread what changed | Canvas change tracking, VS Code files-changed |
 | **Outline** with "you are here" | Headings improve recall; jumping beats scrolling | NotebookLM guide, headings research |
+| **Scrollbar** in the document pane's last column; the thumb's share of the pane is the share of the document on screen | You see how long a document is and where you are without reading the percentage | Every pager and editor; only the thumb is drawn, so it never doubles the pane divider |
 | **Send to chat** (`p`) pastes a thread into the composer, never submits | Sometimes an answer should change the main work, but only on purpose | `/annotate` paste-never-submit, Claude "Send to Claude" |
 | **`/read last`** turns the latest long chat reply into a doc | Works for explanations that were printed into chat | — |
 
