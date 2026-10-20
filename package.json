@@ -1,6 +1,6 @@
 {
 	"name": "omp-sidelight",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "Long answers from your coding agent, made readable. A full-screen reader for omp where you can ask about any passage on the side, without derailing the conversation.",
 	"type": "module",
 	"license": "MIT",
