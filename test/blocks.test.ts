@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { splitBlocks } from "../src/blocks.ts";
+import { displaySource, referenceDefinitions, renderSource, splitBlocks } from "../src/blocks.ts";
 
 const DOC = `# Title
 
@@ -51,4 +51,69 @@ test("the same text under a different kind is a different block", () => {
 	const [heading] = splitBlocks("# Same");
 	const [paragraph] = splitBlocks("Same");
 	assert.notEqual(heading.hash, paragraph.hash);
+});
+
+const REFS = `# Links
+
+Read [the spec][spec], the [Guide][] and [faq].
+
+- a list item pointing at [the spec][spec]
+
+[spec]: https://example.com/spec "The spec"
+[guide]: <https://example.com/guide>
+[faq]:
+  https://example.com/faq
+
+\`\`\`md
+[not]: https://example.com/inside-code
+\`\`\`
+`;
+
+test("a reference link in one block gets the definitions from another (issue #3)", () => {
+	const blocks = splitBlocks(REFS);
+	const definitions = referenceDefinitions(blocks);
+	// One line each and no title: the only form omp's renderer reads.
+	assert.equal(definitions, ["[spec]: https://example.com/spec", "[guide]: <https://example.com/guide>", "[faq]: https://example.com/faq"].join("\n"));
+	const paragraph = blocks.find(block => block.kind === "paragraph")!;
+	assert.equal(renderSource(paragraph, definitions), `${definitions}\n\nRead [the spec][spec], the [Guide][] and [faq].`);
+	const list = blocks.find(block => block.kind === "list")!;
+	assert.ok(renderSource(list, definitions).startsWith(`${definitions}\n\n- a list item`));
+});
+
+test("a paragraph of definitions shows nothing, and its lines are never joined into one", () => {
+	const definitionsOnly = splitBlocks(REFS).find(block => block.source.startsWith("[spec]:"))!;
+	assert.equal(displaySource(definitionsOnly), "");
+	const [mixed] = splitBlocks("[a]: https://a.dev\n[b]: https://b.dev\nThen some\ntext.");
+	assert.equal(displaySource(mixed), "Then some text.");
+});
+
+test("text that only looks like a definition stays text", () => {
+	for (const source of ["[note]: this is important", "Some text\n[a]: https://a.dev", "[a]: https://a.dev trailing words", "[ ]: https://a.dev"]) {
+		const [block] = splitBlocks(source);
+		assert.equal(referenceDefinitions([block]), "", source);
+		assert.equal(displaySource(block), source.replace("\n", " "), source);
+	}
+});
+
+test("blocks that can't hold a link render unchanged", () => {
+	const blocks = splitBlocks(REFS);
+	const definitions = referenceDefinitions(blocks);
+	const code = blocks.find(block => block.kind === "code")!;
+	assert.equal(renderSource(code, definitions), code.source);
+	const heading = blocks.find(block => block.kind === "heading")!;
+	assert.equal(renderSource(heading, definitions), "# Links");
+	assert.equal(renderSource(blocks[1], ""), displaySource(blocks[1]));
+});
+
+test("a label defined twice keeps its first definition, whatever the case", () => {
+	const blocks = splitBlocks("[x]: https://first.dev\n[X]: https://second.dev\n\nSee [x].\n\n[ x ]: https://third.dev");
+	assert.equal(referenceDefinitions(blocks), "[x]: https://first.dev");
+});
+
+test("only paragraphs give definitions; a code block starting with one doesn't", () => {
+	const [paragraph] = splitBlocks("[a]: https://a.dev");
+	assert.equal(referenceDefinitions([paragraph]), "[a]: https://a.dev");
+	for (const kind of ["code", "list", "quote", "table", "heading", "hr"] as const) {
+		assert.equal(referenceDefinitions([{ ...paragraph, kind }]), "", kind);
+	}
 });

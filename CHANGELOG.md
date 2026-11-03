@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Links in the reader open: click one, or press `l` on its line (with several, pick one by number). Web and mail links go to your default browser or mail app; other kinds are not opened.
+- Reference-style links (`[text][ref]` with a `[ref]: url` line on its own elsewhere in the document) render like inline links, and the definition lines no longer show. If a label is defined twice, the first definition wins. Definitions inside lists and quotes aren't collected yet.
+
 ## 0.2.0
 
 - The reader shows a scrollbar on the document's right edge. The thumb's size shows how much of the document fits on screen, and its position shows where you are. Unless the window is tiny, it touches the top only at the start and the bottom only at the end. It disappears when the whole document fits.

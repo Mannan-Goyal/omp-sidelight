@@ -81,6 +81,7 @@ Press `?` in the reader to see these at any time.
 | `t` `T` | next / previous thread |
 | `/` `n` `N` | search · next / previous match |
 | `y` | copy the selection |
+| `l` | open the link on this line; with several, pick one by number |
 | `o` | outline; `Enter` on a heading jumps there |
 
 **Question box** (asking about a passage, or a thread's follow-up box)
@@ -115,7 +116,7 @@ Press `?` in the reader to see these at any time.
 | `?` | all keys |
 | `q` | close the reader |
 
-**Mouse:** hover highlights a block, click moves the cursor, drag selects, double-click selects a block, and the wheel scrolls the pane under the pointer. Shift+drag still selects text the terminal's usual way.
+**Mouse:** hover highlights a block, click moves the cursor, click on a link opens it in your browser, drag selects, double-click selects a block, and the wheel scrolls the pane under the pointer. Shift+drag still selects text the terminal's usual way.
 
 ### Thread list
 

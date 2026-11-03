@@ -16,7 +16,8 @@ import {
 import { getEditorTheme, getMarkdownTheme, getSymbolTheme, shimmerText, type Theme } from "@oh-my-pi/pi-tui/theme";
 import { PRESETS, presetFor } from "./ask";
 import { TOUR_STEPS, type Tour, type TourEvent } from "./tour";
-import { type Block, displaySource, normalizeText, splitBlocks } from "./blocks";
+import { type Block, displaySource, normalizeText, referenceDefinitions, renderSource, splitBlocks } from "./blocks";
+import { isOpenable, linkAt, linkSpans, pickLink } from "./links";
 import type { OpenDoc, Runtime } from "./runtime";
 import { scrollThumb } from "./scrollbar";
 import type { Anchor, DocMeta, Thread } from "./store";
@@ -51,6 +52,8 @@ type Focus = "doc" | "side";
 type SideMode = "list" | "thread" | "compose" | "outline" | "help";
 
 export interface ReaderOptions {
+	/** Open a web or mail link in the system's default app; rejects when that fails. */
+	openUrl: (url: string) => Promise<void>;
 	/** Run the guided tour on this document. */
 	tour?: Tour;
 	/** Show the one-time card offering the tour. */
@@ -76,6 +79,7 @@ const HELP: ReadonlyArray<{ title: string; keys: ReadonlyArray<readonly [string,
 			["t T", "next / previous thread"],
 			["/ n N", "search · next / previous match"],
 			["y", "copy the selection"],
+			["l", "open the link on this line (click also opens one)"],
 			["o", "outline"],
 		],
 	},
@@ -106,7 +110,7 @@ const HELP: ReadonlyArray<{ title: string; keys: ReadonlyArray<readonly [string,
 			["z", "zoom the focused pane to full width"],
 			["?", "this help"],
 			["q", "close the reader"],
-			["mouse", "hover, click, drag to select, wheel to scroll"],
+			["mouse", "hover, click (opens a link), drag to select, wheel to scroll"],
 		],
 	},
 ];
@@ -172,6 +176,8 @@ export class Reader implements Component {
 	#meta: DocMeta;
 	#version: number;
 	#blocks: Block[];
+	/** The document's link reference definitions, rendered with every block so `[text][ref]` resolves anywhere. */
+	#definitions: string;
 	#changed = new Set<number>();
 	#layout: Layout | undefined;
 
@@ -184,6 +190,11 @@ export class Reader implements Component {
 	#dragging = false;
 	#hoverBlock = -1;
 	#lastClick = { at: 0, row: -1 };
+	/** The link a left click went down on; it opens when the button comes up on it again without a drag. */
+	#pressLink: string | null = null;
+	/** Several links where `l` was pressed: the bottom bar asks which, by number. */
+	#linkPick: string[] | null = null;
+	readonly #openUrl: (url: string) => Promise<void>;
 
 	#sideMode: SideMode = "list";
 	#listIndex = 0;
@@ -214,10 +225,11 @@ export class Reader implements Component {
 	readonly #onStartTour: (() => void) | undefined;
 	#helpReturn: SideMode = "list";
 
-	constructor(tui: TUI, theme: Theme, done: () => void, rt: Runtime, doc: OpenDoc, options: ReaderOptions = {}) {
+	constructor(tui: TUI, theme: Theme, done: () => void, rt: Runtime, doc: OpenDoc, options: ReaderOptions) {
 		this.#tour = options.tour;
 		this.#offer = options.offerTour === true && !options.tour;
 		this.#onStartTour = options.onStartTour;
+		this.#openUrl = options.openUrl;
 		this.#tui = tui;
 		this.#theme = theme;
 		this.#done = done;
@@ -225,6 +237,7 @@ export class Reader implements Component {
 		this.#meta = doc.meta;
 		this.#version = doc.version;
 		this.#blocks = splitBlocks(doc.text);
+		this.#definitions = referenceDefinitions(this.#blocks);
 		this.#computeChanged();
 		const saved = positions.get(doc.meta.slug);
 		if (saved) {
@@ -246,7 +259,12 @@ export class Reader implements Component {
 		const lastRead = this.#meta.lastRead;
 		if (!lastRead || lastRead >= this.#version) return;
 		const old = new Set(splitBlocks(this.#rt.store.readVersion(this.#meta.slug, lastRead) ?? "").map(b => b.hash));
-		for (const block of this.#blocks) if (!old.has(block.hash)) this.#changed.add(block.index);
+		for (const block of this.#blocks) if (!old.has(block.hash) && this.#shows(block)) this.#changed.add(block.index);
+	}
+
+	/** False for a paragraph of only reference definitions: like any markdown renderer, the reader draws nothing for it. */
+	#shows(block: Block): boolean {
+		return displaySource(block).trim() !== "";
 	}
 
 	#threads(): Thread[] {
@@ -319,7 +337,8 @@ export class Reader implements Component {
 		const first: number[] = [];
 		const last: number[] = [];
 		for (const block of this.#blocks) {
-			const lines = [...new Markdown(displaySource(block), 0, 0, theme).render(width)];
+			if (!this.#shows(block)) continue;
+			const lines = [...new Markdown(renderSource(block, this.#definitions), 0, 0, theme).render(width)];
 			while (lines.length && !lines[0].replace(ANSI, "").trim()) lines.shift();
 			while (lines.length && !lines.at(-1)!.replace(ANSI, "").trim()) lines.pop();
 			if (!lines.length) lines.push("");
@@ -593,7 +612,7 @@ export class Reader implements Component {
 		const here = layout.rows[this.#cursor]?.block ?? -1;
 		const from = here < 0 ? (direction > 0 ? -1 : this.#blocks.length) : here;
 		for (let i = from + direction; i >= 0 && i < this.#blocks.length; i += direction) {
-			if (test(this.#blocks[i])) {
+			if (layout.first[i] !== undefined && test(this.#blocks[i])) {
 				this.#jumpToBlock(i);
 				return;
 			}
@@ -613,6 +632,15 @@ export class Reader implements Component {
 			this.#search.handleInput(data);
 			this.#tui.requestRender();
 			return;
+		}
+		if (this.#linkPick) {
+			const { answered, href } = pickLink(this.#linkPick, data);
+			this.#linkPick = null;
+			this.#tui.requestRender();
+			if (href) this.#openLink(href);
+			else if (answered) this.#flash(`No link ${data} here`);
+			// Esc only dismisses the question; any other key also does what it normally does.
+			if (answered || matchesKey(data, "escape")) return;
 		}
 		if (this.#offer) {
 			this.#offer = false;
@@ -711,7 +739,8 @@ export class Reader implements Component {
 			const span = this.#selection();
 			const anchor = span ? this.#anchorFor(span) : null;
 			if (anchor) this.#copy(anchor.quote, "passage");
-		} else if (data === "o") {
+		} else if (data === "l") this.#openLinkHere();
+		else if (data === "o") {
 			this.#sideMode = this.#sideMode === "outline" ? "list" : "outline";
 			this.#focus = "side";
 			if (this.#sideMode === "outline") this.#tourHit("outline");
@@ -853,6 +882,37 @@ export class Reader implements Component {
 		this.#stickBottom = false;
 	}
 
+	/** The link at screen column `col` of document row `docRow`, if any. */
+	#linkAtPointer(col: number, docRow: number): string | undefined {
+		const row = this.#layout?.rows[docRow];
+		return row && col >= GUTTER ? linkAt(row.text, col - GUTTER, visibleWidth) : undefined;
+	}
+
+	/** `l`: open the link on the cursor's line, or else in its block; asks which when there are several. */
+	#openLinkHere(): void {
+		const layout = this.#layout;
+		const row = layout?.rows[this.#cursor];
+		if (!layout || !row) return;
+		const hrefs = (rows: Row[]): string[] => [...new Set(rows.flatMap(r => linkSpans(r.text, visibleWidth).map(span => span.href)))];
+		let links = hrefs([row]);
+		if (!links.length && row.block >= 0) links = hrefs(layout.rows.slice(layout.first[row.block], layout.last[row.block] + 1));
+		if (!links.length) this.#flash("No link on this line");
+		else if (links.length === 1) this.#openLink(links[0]);
+		else this.#linkPick = links.slice(0, 9);
+	}
+
+	#openLink(href: string): void {
+		if (!isOpenable(href)) {
+			this.#flash(`Only web and mail links open from the reader: ${href}`);
+			return;
+		}
+		this.#flash(`Opening ${href}`);
+		this.#openUrl(href).catch((error: unknown) => {
+			this.#flash(`Couldn't open ${href}: ${error instanceof Error ? error.message : String(error)}`);
+			this.#tui.requestRender();
+		});
+	}
+
 	#handleMouse(event: SgrMouseEvent): void {
 		const { split, docW, body } = this.#size(this.#tui.terminal.columns);
 		const inBody = event.row >= 1 && event.row <= body;
@@ -877,10 +937,12 @@ export class Reader implements Component {
 					this.#cursor = docRow;
 					this.#selectBlock();
 					this.#dragging = false;
+					this.#pressLink = null;
 				} else {
 					this.#cursor = docRow;
 					this.#selAnchor = docRow;
 					this.#dragging = true;
+					this.#pressLink = this.#linkAtPointer(event.col, docRow) ?? null;
 				}
 				this.#lastClick = { at: now, row: docRow };
 			} else if (!onDoc) {
@@ -908,9 +970,15 @@ export class Reader implements Component {
 			} else {
 				this.#hoverBlock = -1;
 			}
-		} else if (event.release && this.#dragging) {
-			this.#dragging = false;
-			if (this.#selAnchor === this.#cursor) this.#selAnchor = null;
+		} else if (event.release) {
+			const link = this.#pressLink;
+			this.#pressLink = null;
+			if (this.#dragging) {
+				this.#dragging = false;
+				if (this.#selAnchor === this.#cursor) this.#selAnchor = null;
+			}
+			// A click, not a drag: the button came up on the link it went down on.
+			if (link && this.#selAnchor === null && onDoc && inBody && this.#linkAtPointer(event.col, docRow) === link) this.#openLink(link);
 		}
 		this.#tui.requestRender();
 	}
@@ -976,6 +1044,10 @@ export class Reader implements Component {
 	#renderBottom(width: number): string {
 		const t = this.#theme;
 		if (this.#search) return fit(`${t.fg("accent", "/")}${this.#search.render(width - 1)[0] ?? ""}`, width);
+		if (this.#linkPick) {
+			const links = this.#linkPick.map((href, i) => `${t.fg("accent", String(i + 1))} ${href.replace(/^https?:\/\//, "")}`).join(t.fg("dim", " · "));
+			return fit(` ${t.fg("text", "Open which link?")} ${links}${t.fg("dim", " · Esc cancel")}`, width);
+		}
 		if (this.#message && Date.now() < this.#messageUntil) return fit(t.fg("warning", ` ${this.#message}`), width);
 		let hint: string;
 		const quick = PRESETS.map(p => `${p.key} ${p.label}`).join(" ");
@@ -988,7 +1060,7 @@ export class Reader implements Component {
 			hint =
 				this.#selAnchor !== null
 					? `a ask · ${quick} · y copy · Esc clear`
-					: `? all keys · j/k move · [ ] block · { } section · v select · a ask · 1-${PRESETS.length} quick ask · d change · t thread · / search · o outline · z zoom · Tab side · q close`;
+					: `? all keys · j/k move · [ ] block · { } section · v select · a ask · 1-${PRESETS.length} quick ask · d change · t thread · / search · l link · o outline · z zoom · Tab side · q close`;
 		} else if (this.#sideMode === "thread") hint = "f type a follow-up · j/k scroll · c cancel answer · p send to chat · y copy · r resolve · x delete · Esc back · Tab doc";
 		else if (this.#sideMode === "outline") hint = "j/k pick · Enter jump · Esc back · Tab doc";
 		else hint = "? all keys · j/k pick · Enter open · r resolve · x delete · Tab doc · q close";

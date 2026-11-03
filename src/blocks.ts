@@ -164,12 +164,16 @@ const HARD_BREAK = /( {2,}|\\)$/;
  * renderer keeps every newline, so a hard-wrapped file would show ragged
  * half-lines; CommonMark treats a lone newline inside a paragraph as a space.
  * Hard breaks (two trailing spaces or a backslash), code and tables are kept.
+ * Reference definitions a paragraph starts with are left out: joined onto one
+ * line they would stop being definitions, and {@link renderSource} gives every
+ * block the whole document's definitions anyway.
  */
 export function displaySource(block: Block): string {
 	if (block.kind !== "paragraph" && block.kind !== "list" && block.kind !== "quote") return block.source;
+	const source = block.kind === "paragraph" ? splitDefinitions(block.source).rest : block.source;
 	const out: string[] = [];
 	let inFence = false;
-	for (const line of block.source.split("\n")) {
+	for (const line of source.split("\n")) {
 		const prev = out.length ? out[out.length - 1] : undefined;
 		const isFence = NESTED_FENCE.test(line.replace(/^\s*>\s?/, ""));
 		// Decided before toggling, so neither the opening nor the closing fence line is ever joined.
@@ -193,4 +197,66 @@ export function displaySource(block: Block): string {
 		out[out.length - 1] = `${prev.trimEnd()} ${text.trim()}`;
 	}
 	return out.join("\n");
+}
+
+/**
+ * A link reference definition, `[label]: destination "optional title"`, with
+ * the destination or the title allowed on the next line, as CommonMark reads
+ * it. Captures the label and the destination.
+ */
+const DEFINITION =
+	/ {0,3}\[(?!\s*\])((?:[^\\[\]]|\\.){1,999})\]:[ \t]*\n?[ \t]*(<(?:[^\\<>\n]|\\.)*>|[^\s<]\S*)(?:(?:[ \t]+|[ \t]*\n[ \t]*)(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|\((?:[^()\\\n]|\\.)*\)))?[ \t]*(?:\n|$)/y;
+
+/**
+ * The definitions a paragraph starts with, and the text after them. A
+ * definition can't interrupt a paragraph. Each comes back on one line without
+ * its title, the only form omp's markdown renderer reads; a terminal link
+ * shows no title anyway.
+ */
+function splitDefinitions(source: string): { definitions: Array<{ label: string; line: string }>; rest: string } {
+	const definitions: Array<{ label: string; line: string }> = [];
+	let at = 0;
+	for (;;) {
+		DEFINITION.lastIndex = at;
+		const match = DEFINITION.exec(source);
+		if (!match?.[0]) break;
+		const label = match[1].replace(/\s+/g, " ");
+		// An empty destination links nowhere, and the renderer would print it as text.
+		if (match[2] !== "<>") definitions.push({ label, line: `[${label}]: ${match[2]}` });
+		at += match[0].length;
+	}
+	return { definitions, rest: source.slice(at) };
+}
+
+/**
+ * Every link reference definition in the document, one per line. Each block
+ * renders on its own, so a `[text][ref]` in one block resolves only when the
+ * definition is rendered with it; see {@link renderSource}. When a label is
+ * defined twice the first definition wins, as in CommonMark; omp's renderer
+ * would take the last, so later ones are left out.
+ */
+export function referenceDefinitions(blocks: readonly Block[]): string {
+	const seen = new Set<string>();
+	const lines: string[] = [];
+	for (const block of blocks) {
+		if (block.kind !== "paragraph") continue;
+		for (const { label, line } of splitDefinitions(block.source).definitions) {
+			const key = label.trim().toLowerCase();
+			if (seen.has(key)) continue;
+			seen.add(key);
+			lines.push(line);
+		}
+	}
+	return lines.join("\n");
+}
+
+/**
+ * What the reader hands the markdown renderer for `block`: its display source,
+ * after the document's reference definitions when it could use one. The
+ * definitions themselves render nothing, as in any markdown renderer.
+ */
+export function renderSource(block: Block, definitions: string): string {
+	const text = displaySource(block);
+	if (!definitions || !text.includes("[") || block.kind === "code" || block.kind === "hr") return text;
+	return `${definitions}\n\n${text}`;
 }
