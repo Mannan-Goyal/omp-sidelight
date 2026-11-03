@@ -91,7 +91,7 @@ Icons, in the list and the document gutter: spinner answering · `✦` new answe
 `✓` resolved · `△` the passage changed.
 
 Mouse: hover highlights the block; click puts the cursor there, or opens a link; drag selects; wheel scrolls
-the pane under the pointer. Shift+drag still does native terminal selection.
+the pane under the pointer and leaves the cursor near the top of the view. Shift+drag still does native terminal selection.
 
 ## What `/read` offers
 

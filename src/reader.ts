@@ -18,6 +18,7 @@ import { PRESETS, presetFor } from "./ask";
 import { TOUR_STEPS, type Tour, type TourEvent } from "./tour";
 import { type Block, displaySource, normalizeText, referenceDefinitions, renderSource, splitBlocks } from "./blocks";
 import { isOpenable, linkAt, linkSpans, pickLink } from "./links";
+import { clampView, jumpOrigin, revealCursor, SCROLL_MARGIN, type View, wheelView } from "./navigation";
 import type { OpenDoc, Runtime } from "./runtime";
 import { scrollThumb } from "./scrollbar";
 import type { Anchor, DocMeta, Thread } from "./store";
@@ -138,7 +139,6 @@ const WORKING_MESSAGE = "Working…";
 const SPLIT_MIN_WIDTH = 110;
 const DOC_SHARE = 0.6;
 const GUTTER = 3;
-const SCROLL_MARGIN = 3;
 const WHEEL_STEP = 3;
 const DOUBLE_CLICK_MS = 400;
 const MESSAGE_MS = 3500;
@@ -148,7 +148,7 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b_[
 const BORDER_ONLY = /^[\s─━│┃┼├┤┌┐└┘┬┴╭╮╰╯═║╔╗╚╝╠╣╦╩╬]*$/;
 
 /** Remembered per document so reopening returns to the same place. */
-const positions = new Map<string, { cursor: number; scroll: number }>();
+const positions = new Map<string, View>();
 
 function fit(text: string, width: number): string {
 	if (width <= 0) return "";
@@ -373,16 +373,20 @@ export class Reader implements Component {
 	}
 
 	#clampDoc(body: number): void {
-		const rows = this.#layout?.rows.length ?? 0;
-		this.#cursor = Math.max(0, Math.min(this.#cursor, rows - 1));
-		this.#scroll = Math.max(0, Math.min(this.#scroll, Math.max(0, rows - body)));
+		this.#setView(clampView(this.#view(), this.#layout?.rows.length ?? 0, body));
 	}
 
 	#reveal(body: number): void {
-		const margin = Math.min(SCROLL_MARGIN, Math.floor(body / 4));
-		if (this.#cursor < this.#scroll + margin) this.#scroll = this.#cursor - margin;
-		if (this.#cursor > this.#scroll + body - 1 - margin) this.#scroll = this.#cursor - body + 1 + margin;
-		this.#clampDoc(body);
+		this.#setView(revealCursor(this.#view(), this.#layout?.rows.length ?? 0, body));
+	}
+
+	#view(): View {
+		return { cursor: this.#cursor, scroll: this.#scroll };
+	}
+
+	#setView(view: View): void {
+		this.#cursor = view.cursor;
+		this.#scroll = view.scroll;
 	}
 
 	#bodyHeight(): number {
@@ -609,8 +613,7 @@ export class Reader implements Component {
 	#jumpBlock(direction: 1 | -1, test: (block: Block) => boolean, label: string): void {
 		const layout = this.#layout;
 		if (!layout) return;
-		const here = layout.rows[this.#cursor]?.block ?? -1;
-		const from = here < 0 ? (direction > 0 ? -1 : this.#blocks.length) : here;
+		const from = jumpOrigin(layout.rows, this.#cursor, direction, this.#blocks.length);
 		for (let i = from + direction; i >= 0 && i < this.#blocks.length; i += direction) {
 			if (layout.first[i] !== undefined && test(this.#blocks[i])) {
 				this.#jumpToBlock(i);
@@ -783,7 +786,8 @@ export class Reader implements Component {
 			this.#flash("No threads in this document yet");
 			return;
 		}
-		const here = this.#layout?.rows[this.#cursor]?.block ?? -1;
+		const layout = this.#layout;
+		const here = layout ? jumpOrigin(layout.rows, this.#cursor, direction, this.#blocks.length) : -1;
 		const sorted = [...located].sort((a, b) => a.span!.start - b.span!.start);
 		const next =
 			direction > 0
@@ -922,10 +926,8 @@ export class Reader implements Component {
 
 		if (event.wheel !== null) {
 			if (onDoc) {
-				this.#scroll += event.wheel * WHEEL_STEP;
-				this.#clampDoc(body);
-				if (this.#cursor < this.#scroll) this.#cursor = this.#scroll;
-				if (this.#cursor > this.#scroll + body - 1) this.#cursor = this.#scroll + body - 1;
+				const selecting = this.#selAnchor !== null || this.#dragging;
+				this.#setView(wheelView(this.#view(), event.wheel * WHEEL_STEP, layout?.rows.length ?? 0, body, selecting));
 			} else {
 				this.#scrollSide(event.wheel * WHEEL_STEP);
 			}

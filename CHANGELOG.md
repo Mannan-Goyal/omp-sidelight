@@ -4,6 +4,7 @@
 
 - Links in the reader open: click one, or press `l` on its line (with several, pick one by number). Web and mail links go to your default browser or mail app; other kinds are not opened.
 - Reference-style links (`[text][ref]` with a `[ref]: url` line on its own elsewhere in the document) render like inline links, and the definition lines no longer show. If a label is defined twice, the first definition wins. Definitions inside lists and quotes aren't collected yet.
+- After scrolling with the mouse wheel, the cursor sits near the top of what's on screen, so `j` `k`, `[` `]` and `{` `}` carry on from there instead of jumping back to where the keyboard last left it. A jump from the blank line between two blocks now goes to the neighbouring block instead of the start of the document.
 
 ## 0.2.0
 

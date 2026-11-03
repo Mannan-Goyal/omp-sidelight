@@ -116,7 +116,7 @@ Press `?` in the reader to see these at any time.
 | `?` | all keys |
 | `q` | close the reader |
 
-**Mouse:** hover highlights a block, click moves the cursor, click on a link opens it in your browser, drag selects, double-click selects a block, and the wheel scrolls the pane under the pointer. Shift+drag still selects text the terminal's usual way.
+**Mouse:** hover highlights a block, click moves the cursor, click on a link opens it in your browser, drag selects, double-click selects a block, and the wheel scrolls the pane under the pointer. After the wheel, the cursor sits near the top of what's on screen, so `j` `k` `[` `]` carry on from there. Shift+drag still selects text the terminal's usual way.
 
 ### Thread list
 
