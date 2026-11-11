@@ -7,7 +7,6 @@ import {
 	Markdown,
 	matchesKey,
 	parseSgrMouse,
-	SPINNER_ADVANCE_MS,
 	type SgrMouseEvent,
 	type TUI,
 	truncateToWidth,
@@ -21,6 +20,13 @@ import { type Block, displaySource, normalizeText, splitBlocks } from "./blocks"
 import type { OpenDoc, Runtime } from "./runtime";
 import { scrollThumb } from "./scrollbar";
 import type { Anchor, DocMeta, Thread } from "./store";
+
+/**
+ * The spinner's tick period. `@oh-my-pi/pi-tui` exported this as `SPINNER_ADVANCE_MS` until it moved
+ * to a shared spinner clock in 18.18; the period itself is unchanged, so define it here rather than
+ * import a name depending on the host version (the package supports omp back to 18.11).
+ */
+const SPINNER_ADVANCE_MS = 80;
 
 interface Row {
 	text: string;
