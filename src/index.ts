@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { Text } from "@oh-my-pi/pi-tui";
+import { openerCommand } from "./links";
 import { Reader } from "./reader";
 import { type OpenDoc, Runtime } from "./runtime";
 import { type DocMeta, SLUG } from "./store";
@@ -133,6 +134,13 @@ export default function explain(pi: ExtensionAPI): void {
 		return { ...rt.store.externalMeta(file), title: "Sidelight tour" };
 	};
 
+	/** Hand a web or mail link to the system's default app; the URL goes in as one argument, never through a shell. */
+	const openUrl = async (url: string): Promise<void> => {
+		const { command, args } = openerCommand(process.platform, url);
+		const result = await pi.exec(command, args, { timeout: 10_000 });
+		if (result.code !== 0) throw new Error(result.stderr.trim() || `${command} exited with code ${result.code}`);
+	};
+
 	const openReader = async (ctx: ExtensionContext, meta: DocMeta, tour = false): Promise<void> => {
 		if (!ctx.hasUI || ctx.mode !== "tui") {
 			ctx.ui.notify("Sidelight needs the interactive terminal UI.", "warning");
@@ -153,6 +161,7 @@ export default function explain(pi: ExtensionAPI): void {
 		await ctx.ui.custom<void>(
 			(tui, theme, _keybindings, done) =>
 				new Reader(tui, theme, () => done(undefined), rt, doc, {
+					openUrl,
 					tour: tour ? new Tour() : undefined,
 					offerTour,
 					onStartTour: () => {

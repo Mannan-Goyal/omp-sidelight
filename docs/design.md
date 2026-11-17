@@ -64,7 +64,7 @@ to the main chat, a third nesting level of panes, and "explain at 3 levels" (no 
 | `1`–`6` | quick ask: simpler · why · example · define · how it connects · intuitive |
 | `d` `D` · `t` `T` | next/previous change · next/previous thread |
 | `/` `n` `N` | search |
-| `y` · `o` · `Tab` · `q` | copy · outline · switch pane · close |
+| `y` · `l` · `o` · `Tab` · `q` | copy · open the link on this line · outline · switch pane · close |
 | `z` | zoom: show only the focused pane at full width (for wide diagrams and tables); `z` again restores the split |
 
 | Question box (asking, or a thread's follow-up box) | |
@@ -90,8 +90,8 @@ to the main chat, a third nesting level of panes, and "explain at 3 levels" (no 
 Icons, in the list and the document gutter: spinner answering · `✦` new answer you haven't seen · `●` open ·
 `✓` resolved · `△` the passage changed.
 
-Mouse: hover highlights the block; click puts the cursor there; drag selects; wheel scrolls
-the pane under the pointer. Shift+drag still does native terminal selection.
+Mouse: hover highlights the block; click puts the cursor there, or opens a link; drag selects; wheel scrolls
+the pane under the pointer and leaves the cursor near the top of the view. Shift+drag still does native terminal selection.
 
 ## What `/read` offers
 
