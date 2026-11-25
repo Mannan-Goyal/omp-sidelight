@@ -1,20 +1,15 @@
+import type { ExtensionRows, ExtensionTheme, ExtensionUiHost } from "@oh-my-pi/pi-coding-agent";
 import { copyToClipboard } from "@oh-my-pi/pi-coding-agent/utils/clipboard";
-import {
-	type Component,
-	Editor,
-	Input,
-	Loader,
-	Markdown,
-	matchesKey,
-	parseSgrMouse,
-	type SgrMouseEvent,
-	type TUI,
-	truncateToWidth,
-	visibleWidth,
-	wrapTextWithAnsi,
-} from "@oh-my-pi/pi-tui";
-import { getEditorTheme, getMarkdownTheme, getSymbolTheme, shimmerText, type Theme } from "@oh-my-pi/pi-tui/theme";
+import { type KeyEvent, onCleanup, type PasteEvent, signal, UiNode, untrack } from "@oh-my-pi/pi-tui";
+import type { MouseEvent } from "@oh-my-pi/pi-tui/driver/contract";
+import { decodeMouse } from "@oh-my-pi/pi-tui/driver/input/mouse";
+import { type Block as PaintBlock, defineRolePainter } from "@oh-my-pi/pi-tui/term/paint";
+import { defineRoleWidget } from "@oh-my-pi/pi-tui/term/widgets";
+import { renderMarkdown } from "@oh-my-pi/pi-tui/text/markdown/render";
+import { shimmerText } from "@oh-my-pi/pi-tui/text/shimmer";
+import { truncate, visibleWidth, wrap } from "@oh-my-pi/pi-tui/text/width";
 import { PRESETS, presetFor } from "./ask";
+import { keyIdOf, TextField } from "./field";
 import { TOUR_STEPS, type Tour, type TourEvent } from "./tour";
 import { type Block, displaySource, normalizeText, referenceDefinitions, renderSource, splitBlocks } from "./blocks";
 import { isOpenable, linkAt, linkSpans, pickLink } from "./links";
@@ -152,8 +147,12 @@ const positions = new Map<string, View>();
 
 function fit(text: string, width: number): string {
 	if (width <= 0) return "";
-	const cut = truncateToWidth(text, width);
+	const cut = truncate(text, width);
 	return cut + " ".repeat(Math.max(0, width - visibleWidth(cut)));
+}
+
+function matchesKey(data: string, id: string): boolean {
+	return keyIdOf(data) === id;
 }
 
 /**
@@ -166,9 +165,9 @@ function highlightRow(text: string, width: number, bg: (text: string) => string)
 	return bg(fit(text, width).replace(/\x1b\[(?:0|49)?m/g, reset => `${reset}${open}`));
 }
 
-export class Reader implements Component {
-	readonly #tui: TUI;
-	readonly #theme: Theme;
+export class Reader implements ExtensionRows {
+	readonly #ui: ExtensionUiHost;
+	readonly #theme: ExtensionTheme;
 	readonly #done: () => void;
 	readonly #rt: Runtime;
 	readonly #unsubscribe: () => void;
@@ -204,14 +203,13 @@ export class Reader implements Component {
 	#stickBottom = true;
 	#draft: Anchor | null = null;
 	/** The question box: asking about a passage (compose) or following up in a thread. */
-	#composer: Editor | null = null;
+	#composer: TextField | null = null;
 	/** In a thread, Esc steps out of the box so j/k/p/y/r/x work; f, Enter or Tab steps back in. */
 	#browse = false;
-	readonly #loaders = new Map<string, Loader>();
-	#ticker: ReturnType<typeof setInterval> | undefined;
+	#ticker: NodeJS.Timeout | undefined;
 	#sideHits: Array<{ row: number; index: number }> = [];
 
-	#search: Input | null = null;
+	#search: TextField | null = null;
 	#matches: number[] = [];
 	#matchIndex = -1;
 
@@ -225,12 +223,12 @@ export class Reader implements Component {
 	readonly #onStartTour: (() => void) | undefined;
 	#helpReturn: SideMode = "list";
 
-	constructor(tui: TUI, theme: Theme, done: () => void, rt: Runtime, doc: OpenDoc, options: ReaderOptions) {
+	constructor(ui: ExtensionUiHost, theme: ExtensionTheme, done: () => void, rt: Runtime, doc: OpenDoc, options: ReaderOptions) {
 		this.#tour = options.tour;
 		this.#offer = options.offerTour === true && !options.tour;
 		this.#onStartTour = options.onStartTour;
 		this.#openUrl = options.openUrl;
-		this.#tui = tui;
+		this.#ui = ui;
 		this.#theme = theme;
 		this.#done = done;
 		this.#rt = rt;
@@ -247,7 +245,7 @@ export class Reader implements Component {
 		rt.readerOpen = true;
 		this.#unsubscribe = rt.subscribe(() => {
 			this.#answerCache.clear();
-			this.#tui.requestRender();
+			this.#ui.requestRender();
 		});
 		if (this.#changed.size && !this.#tour) this.#flash(`${this.#changed.size} changed since you last read: press d to jump`);
 	}
@@ -316,7 +314,7 @@ export class Reader implements Component {
 		const t = this.#theme;
 		switch (group) {
 			case "answering": {
-				const frames = getSymbolTheme().spinnerFrames;
+				const frames = this.#theme.symbols.spinnerFrames;
 				return t.fg("accent", frames[Math.floor(Date.now() / SPINNER_ADVANCE_MS) % frames.length] ?? "…");
 			}
 			case "new":
@@ -332,13 +330,12 @@ export class Reader implements Component {
 
 	#layoutFor(width: number): Layout {
 		if (this.#layout?.width === width) return this.#layout;
-		const theme = getMarkdownTheme();
 		const rows: Row[] = [];
 		const first: number[] = [];
 		const last: number[] = [];
 		for (const block of this.#blocks) {
 			if (!this.#shows(block)) continue;
-			const lines = [...new Markdown(renderSource(block, this.#definitions), 0, 0, theme).render(width)];
+			const lines = renderMarkdown(renderSource(block, this.#definitions), width, { theme: this.#theme, hyperlinks: true });
 			while (lines.length && !lines[0].replace(ANSI, "").trim()) lines.shift();
 			while (lines.length && !lines.at(-1)!.replace(ANSI, "").trim()) lines.pop();
 			if (!lines.length) lines.push("");
@@ -354,7 +351,7 @@ export class Reader implements Component {
 	// ── geometry ────────────────────────────────────────────────────────
 
 	#size(width: number): { rows: number; body: number; split: boolean; docW: number; sideW: number } {
-		const rows = Math.max(8, this.#tui.terminal.rows);
+		const rows = Math.max(8, this.#ui.size().rows);
 		const split = width >= SPLIT_MIN_WIDTH && !this.#zoom;
 		const docW = split ? Math.floor(width * DOC_SHARE) : width;
 		const sideW = split ? width - docW - 1 : width;
@@ -363,11 +360,10 @@ export class Reader implements Component {
 
 	/** Columns an answer gets in the normal split view; sent to the model so diagrams fit without zooming. */
 	#answerWidth(): number {
-		const columns = this.#tui.terminal.columns;
+		const columns = this.#ui.size().columns;
 		if (columns < SPLIT_MIN_WIDTH) return columns - 2;
 		return columns - Math.floor(columns * DOC_SHARE) - 1 - 2;
 	}
-
 	#contentWidth(docW: number): number {
 		return Math.max(20, docW - GUTTER - 1);
 	}
@@ -390,8 +386,8 @@ export class Reader implements Component {
 	}
 
 	#bodyHeight(): number {
-		const width = this.#tui.terminal.columns;
-		return Math.max(4, this.#tui.terminal.rows - 2 - this.#cardLines(width).length);
+		const { columns, rows } = this.#ui.size();
+		return Math.max(4, rows - 2 - this.#cardLines(columns).length);
 	}
 
 	#jumpToBlock(index: number): void {
@@ -459,7 +455,7 @@ export class Reader implements Component {
 	}
 
 	#tourHit(event: TourEvent): void {
-		if (this.#tour?.hit(event)) this.#tui.requestRender();
+		if (this.#tour?.hit(event)) this.#ui.requestRender();
 	}
 
 	#startAsk(): void {
@@ -519,15 +515,15 @@ export class Reader implements Component {
 	}
 
 	/** A multi-line question box: Enter sends, Shift+Enter (or Alt+Enter) starts a new line, like the chat composer. */
-	#newComposer(placeholder: string, onSubmit: (value: string) => void): Editor {
-		const editor = new Editor(getEditorTheme());
-		editor.focused = true;
-		editor.placeholder = () => placeholder;
-		editor.setMaxHeight(8);
-		editor.onSubmit = value => {
-			if (value.trim()) onSubmit(value);
-		};
-		return editor;
+	#newComposer(placeholder: string, onSubmit: (value: string) => void): TextField {
+		return new TextField({
+			multiline: true,
+			placeholder,
+			maxHeight: 8,
+			onSubmit: value => {
+				if (value.trim()) onSubmit(value);
+			},
+		});
 	}
 
 	/** Keys go to the question box: asking about a passage, or a thread not in browse mode. */
@@ -565,11 +561,11 @@ export class Reader implements Component {
 		copyToClipboard(text).then(
 			() => {
 				this.#flash(`Copied ${what}`);
-				this.#tui.requestRender();
+				this.#ui.requestRender();
 			},
 			(error: unknown) => {
 				this.#flash(`Copy failed: ${error instanceof Error ? error.message : String(error)}`);
-				this.#tui.requestRender();
+				this.#ui.requestRender();
 			},
 		);
 	}
@@ -627,19 +623,19 @@ export class Reader implements Component {
 
 	handleInput(data: string): void {
 		if (data.startsWith("\x1b[<")) {
-			const event = parseSgrMouse(data);
-			if (event) this.#handleMouse(event);
+			const event = decodeMouse(data);
+			if (event) this.handleMouse(event);
 			return;
 		}
 		if (this.#search) {
 			this.#search.handleInput(data);
-			this.#tui.requestRender();
+			this.#ui.requestRender();
 			return;
 		}
 		if (this.#linkPick) {
 			const { answered, href } = pickLink(this.#linkPick, data);
 			this.#linkPick = null;
-			this.#tui.requestRender();
+			this.#ui.requestRender();
 			if (href) this.#openLink(href);
 			else if (answered) this.#flash(`No link ${data} here`);
 			// Esc only dismisses the question; any other key also does what it normally does.
@@ -652,13 +648,13 @@ export class Reader implements Component {
 				this.#onStartTour?.();
 				return;
 			}
-			this.#tui.requestRender();
+			this.#ui.requestRender();
 			// Esc only dismisses the card; any other key also does what it normally does.
 			if (matchesKey(data, "escape")) return;
 		}
 		if (this.#composerActive() && this.#composer) {
 			this.#handleComposerKey(this.#composer, data);
-			this.#tui.requestRender();
+			this.#ui.requestRender();
 			return;
 		}
 		if (matchesKey(data, "tab")) {
@@ -666,7 +662,7 @@ export class Reader implements Component {
 			// Coming back to a thread puts you straight into its follow-up box.
 			if (this.#focus === "side") this.#browse = false;
 		} else if (data === "z") {
-			if (this.#tui.terminal.columns < SPLIT_MIN_WIDTH) this.#flash("Already showing one pane at full width");
+			if (this.#ui.size().columns < SPLIT_MIN_WIDTH) this.#flash("Already showing one pane at full width");
 			else this.#zoom = !this.#zoom;
 			this.#tourHit("zoom");
 		} else if (data === "?") {
@@ -686,10 +682,10 @@ export class Reader implements Component {
 		} else {
 			if (this.#handleSideKey(data)) return;
 		}
-		this.#tui.requestRender();
+		this.#ui.requestRender();
 	}
 
-	#handleComposerKey(composer: Editor, data: string): void {
+	#handleComposerKey(composer: TextField, data: string): void {
 		const empty = composer.getText() === "";
 		if (matchesKey(data, "escape")) {
 			// Asking: Esc abandons the question. In a thread: Esc steps out of the box, into browse mode.
@@ -748,13 +744,13 @@ export class Reader implements Component {
 			this.#focus = "side";
 			if (this.#sideMode === "outline") this.#tourHit("outline");
 		} else if (data === "/") {
-			const search = new Input();
-			search.focused = true;
-			search.onSubmit = value => this.#runSearch(value);
-			search.onEscape = () => {
-				this.#search = null;
-			};
-			this.#search = search;
+			this.#search = new TextField({
+				multiline: false,
+				onSubmit: value => this.#runSearch(value),
+				onEscape: () => {
+					this.#search = null;
+				},
+			});
 		} else if (data === "n" && this.#matches.length) {
 			this.#matchIndex = (this.#matchIndex + 1) % this.#matches.length;
 			this.#gotoMatch();
@@ -913,25 +909,26 @@ export class Reader implements Component {
 		this.#flash(`Opening ${href}`);
 		this.#openUrl(href).catch((error: unknown) => {
 			this.#flash(`Couldn't open ${href}: ${error instanceof Error ? error.message : String(error)}`);
-			this.#tui.requestRender();
+			this.#ui.requestRender();
 		});
 	}
 
-	#handleMouse(event: SgrMouseEvent): void {
-		const { split, docW, body } = this.#size(this.#tui.terminal.columns);
+	handleMouse(event: MouseEvent): void {
+		const { split, docW, body } = this.#size(this.#ui.size().columns);
 		const inBody = event.row >= 1 && event.row <= body;
 		const onDoc = split ? event.col < docW : this.#focus === "doc";
 		const docRow = this.#scroll + event.row - 1;
 		const layout = this.#layout;
+		const wheel = event.button === "wheel-up" ? -1 : event.button === "wheel-down" ? 1 : null;
 
-		if (event.wheel !== null) {
+		if (wheel !== null) {
 			if (onDoc) {
 				const selecting = this.#selAnchor !== null || this.#dragging;
-				this.#setView(wheelView(this.#view(), event.wheel * WHEEL_STEP, layout?.rows.length ?? 0, body, selecting));
+				this.#setView(wheelView(this.#view(), wheel * WHEEL_STEP, layout?.rows.length ?? 0, body, selecting));
 			} else {
-				this.#scrollSide(event.wheel * WHEEL_STEP);
+				this.#scrollSide(wheel * WHEEL_STEP);
 			}
-		} else if (event.leftClick && inBody) {
+		} else if (event.action === "press" && event.button === "left" && inBody) {
 			if (onDoc && layout && docRow < layout.rows.length) {
 				this.#focus = "doc";
 				const now = Date.now();
@@ -960,8 +957,8 @@ export class Reader implements Component {
 					if (head) this.#jumpToBlock(head.index);
 				}
 			}
-		} else if (event.motion) {
-			const dragging = (event.button & 3) === 0;
+		} else if (event.action === "drag" || event.action === "move") {
+			const dragging = event.action === "drag" && event.button === "left";
 			if (dragging && this.#dragging && layout) {
 				if (event.row < 1) this.#scroll = Math.max(0, this.#scroll - 1);
 				if (event.row > body) this.#scroll += 1;
@@ -972,7 +969,7 @@ export class Reader implements Component {
 			} else {
 				this.#hoverBlock = -1;
 			}
-		} else if (event.release) {
+		} else if (event.action === "release") {
 			const link = this.#pressLink;
 			this.#pressLink = null;
 			if (this.#dragging) {
@@ -982,7 +979,7 @@ export class Reader implements Component {
 			// A click, not a drag: the button came up on the link it went down on.
 			if (link && this.#selAnchor === null && onDoc && inBody && this.#linkAtPointer(event.col, docRow) === link) this.#openLink(link);
 		}
-		this.#tui.requestRender();
+		this.#ui.requestRender();
 	}
 
 	// ── render ──────────────────────────────────────────────────────────
@@ -1009,10 +1006,10 @@ export class Reader implements Component {
 		return lines;
 	}
 
-	/** Keep spinners moving while any answer streams, and drop loaders of answers that finished. */
+	/** Keep spinners moving while any answer streams. */
 	#tick(): void {
 		const running = this.#threads().some(thread => this.#rt.isRunning(thread.id));
-		if (running && !this.#ticker) this.#ticker = setInterval(() => this.#tui.requestRender(), SPINNER_ADVANCE_MS);
+		if (running && !this.#ticker) this.#ticker = setInterval(() => this.#ui.requestRender(), SPINNER_ADVANCE_MS);
 		else if (!running && this.#ticker) {
 			clearInterval(this.#ticker);
 			this.#ticker = undefined;
@@ -1021,11 +1018,6 @@ export class Reader implements Component {
 		if (this.#selAnchor !== null && this.#selAnchor !== this.#cursor) this.#tourHit("select");
 		const newest = this.#threads().at(-1)?.turns.at(-1);
 		if (this.#tour?.current?.on === "answer" && newest && newest.status !== "running") this.#tourHit("answer");
-		for (const [id, loader] of this.#loaders) {
-			if (this.#rt.isRunning(id)) continue;
-			loader.dispose();
-			this.#loaders.delete(id);
-		}
 	}
 
 	#renderTop(width: number, layout: Layout): string {
@@ -1045,7 +1037,7 @@ export class Reader implements Component {
 
 	#renderBottom(width: number): string {
 		const t = this.#theme;
-		if (this.#search) return fit(`${t.fg("accent", "/")}${this.#search.render(width - 1)[0] ?? ""}`, width);
+		if (this.#search) return fit(`${t.fg("accent", "/")}${this.#search.render(width - 1, t)[0] ?? ""}`, width);
 		if (this.#linkPick) {
 			const links = this.#linkPick.map((href, i) => `${t.fg("accent", String(i + 1))} ${href.replace(/^https?:\/\//, "")}`).join(t.fg("dim", " · "));
 			return fit(` ${t.fg("text", "Open which link?")} ${links}${t.fg("dim", " · Esc cancel")}`, width);
@@ -1143,7 +1135,7 @@ export class Reader implements Component {
 		const hint = active
 			? []
 			: [t.fg("dim", this.#focus === "side" ? "f or Enter to type a follow-up" : "Tab to type a follow-up")];
-		return [...hint, ...composer.render(width)];
+		return [...hint, ...composer.render(width, t)];
 	}
 
 	#heading(text: string): string {
@@ -1208,12 +1200,12 @@ export class Reader implements Component {
 		for (const section of HELP) {
 			lines.push(t.bold(t.fg("accent", section.title)));
 			for (const [keys, what] of section.keys) {
-				const wrapped = wrapTextWithAnsi(what, Math.max(10, width - keyW - 2));
+				const wrapped = wrap(what, Math.max(10, width - keyW - 2));
 				wrapped.forEach((line, i) => lines.push(`${i === 0 ? t.fg("text", keys.padEnd(keyW)) : " ".repeat(keyW)}  ${t.fg("muted", line)}`));
 			}
 			lines.push("");
 		}
-		return lines.map(line => truncateToWidth(line, width));
+		return lines.map(line => truncate(line, width));
 	}
 
 	/** The card above the bottom bar: the one-time tour offer, or the current tour step. */
@@ -1224,7 +1216,7 @@ export class Reader implements Component {
 			return `${t.bold(t.fg("accent", head))}${t.fg("borderMuted", "─".repeat(Math.max(0, width - visibleWidth(head))))}`;
 		};
 		const body = (text: string): string[] =>
-			wrapTextWithAnsi(text, width - 2)
+			wrap(text, width - 2)
 				.slice(0, 3)
 				.map(line => ` ${t.fg("text", line)}`);
 		if (this.#offer) {
@@ -1253,12 +1245,12 @@ export class Reader implements Component {
 			const text = `${changed}${mark}${label}`;
 			lines.push(index === this.#outlineIndex && this.#focus === "side" ? t.bg("selectedBg", fit(text.replace(ANSI, ""), width)) : text);
 		});
-		return lines.map(line => truncateToWidth(line, width));
+		return lines.map(line => truncate(line, width));
 	}
 
 	#quoteBox(quote: string, width: number): string[] {
 		const t = this.#theme;
-		const wrapped = quote.split("\n").flatMap(line => wrapTextWithAnsi(line, width - 2));
+		const wrapped = quote.split("\n").flatMap(line => wrap(line, width - 2));
 		const shown = wrapped.slice(0, QUOTE_PREVIEW_LINES);
 		if (wrapped.length > shown.length) shown.push("…");
 		return shown.map(line => `${t.fg("mdQuoteBorder", "▎")} ${t.fg("mdQuote", line)}`);
@@ -1286,48 +1278,44 @@ export class Reader implements Component {
 		if (!span) lines.push(t.fg("warning", "△ This passage changed; the thread is outdated."));
 		else if (thread.resolved) lines.push(t.fg("success", "✓ Resolved"));
 		lines.push("", ...this.#quoteBox(thread.anchor.quote, width), "");
-		const theme = getMarkdownTheme();
 		thread.turns.forEach((turn, index) => {
 			// Your question in the same filled bubble the main chat uses; the answer as plain text below it.
 			const qKey = `q:${thread.id}:${index}:${width}`;
 			let bubble = this.#answerCache.get(qKey);
 			if (!bubble) {
-				bubble = [
-					...new Markdown(turn.q, 1, 1, theme, {
-						bgColor: s => t.bg("userMessageBg", s),
-						color: s => t.fgOnBg("userMessageText", "userMessageBg", s),
-					}).render(width),
-				];
+				const rendered = renderMarkdown(turn.q, width, { theme: t, paddingX: 1, paddingY: 1, hyperlinks: true });
+				bubble = rendered.map(row => highlightRow(row, width, s => t.bg("userMessageBg", s)));
 				this.#answerCache.set(qKey, bubble);
 			}
 			lines.push(...bubble, "");
 			const key = `${thread.id}:${index}:${turn.a.length}:${width}`;
 			let answer = this.#answerCache.get(key);
 			if (!answer && turn.a) {
-				answer = [...new Markdown(turn.a, 0, 0, theme).render(width)];
+				answer = renderMarkdown(turn.a, width, { theme: t, hyperlinks: true });
 				this.#answerCache.set(key, answer);
 			}
 			if (answer) lines.push(...answer);
-			if (turn.status === "running") lines.push(...this.#loaderFor(thread.id).render(width));
+			if (turn.status === "running") lines.push(this.#workingLine());
 			else if (turn.status === "cancelled") lines.push(t.fg("dim", "(cancelled)"));
 			else if (turn.status === "interrupted") lines.push(t.fg("warning", "(interrupted before it finished)"));
-			else if (turn.status === "error") lines.push(...wrapTextWithAnsi(t.fg("error", `Error: ${turn.error ?? "unknown"}`), width));
+			else if (turn.status === "error") lines.push(...wrap(t.fg("error", `Error: ${turn.error ?? "unknown"}`), width));
 			lines.push("");
 		});
 		this.#rt.markSeen(this.#meta.slug, thread);
-		return lines.map(line => truncateToWidth(line, width));
+		return lines.map(line => truncate(line, width));
 	}
 
-	/** omp's own working indicator (spinner, shimmering "Working…"), one per streaming thread. */
-	#loaderFor(threadId: string): Loader {
-		let loader = this.#loaders.get(threadId);
-		if (!loader) {
-			const t = this.#theme;
-			const message = Object.assign((text: string) => shimmerText(text, t), { animated: true as const });
-			loader = new Loader(this.#tui, spinner => t.fg("accent", spinner), message, WORKING_MESSAGE, getSymbolTheme().spinnerFrames);
-			this.#loaders.set(threadId, loader);
-		}
-		return loader;
+	/** omp's own working indicator (spinner + shimmering "Working…"). */
+	#workingLine(): string {
+		const t = this.#theme;
+		const frames = t.symbols.spinnerFrames;
+		const spinner = frames[Math.floor(Date.now() / SPINNER_ADVANCE_MS) % frames.length] ?? "…";
+		const label = shimmerText(WORKING_MESSAGE, Date.now(), "classic", {
+			low: text => t.fg("dim", text),
+			mid: text => t.fg("muted", text),
+			high: text => t.bold(t.fg("accent", text)),
+		});
+		return `${t.fg("accent", spinner)} ${label}`;
 	}
 
 	invalidate(): void {
@@ -1338,8 +1326,73 @@ export class Reader implements Component {
 	dispose(): void {
 		this.#unsubscribe();
 		clearInterval(this.#ticker);
-		for (const loader of this.#loaders.values()) loader.dispose();
-		this.#loaders.clear();
 		this.#rt.readerOpen = false;
 	}
+}
+
+const READER_ROLE = "sidelight.reader";
+
+interface ReaderCanvasTerm {
+	readonly reader: Reader;
+	readonly rev: () => number;
+}
+
+const readerTerms = new WeakMap<UiNode, ReaderCanvasTerm>();
+
+defineRolePainter("canvas", READER_ROLE, (node, cx): PaintBlock => {
+	const term = readerTerms.get(node);
+	if (!term) return { rows: [] };
+	term.rev();
+	const rows = term.reader.render(cx.width).map(row => truncate(row, cx.width, ""));
+	return { rows, hits: [{ row: 0, col: 0, width: cx.width, height: rows.length, node }] };
+});
+
+defineRoleWidget("canvas", READER_ROLE, {
+	mouse(node, mouse) {
+		const term = readerTerms.get(node);
+		if (!term) return false;
+		term.reader.handleMouse(mouse);
+		return true;
+	},
+});
+
+/** Mount a {@link Reader} as a pi-tui `canvas` node so keyboard, paste, and mouse events all reach it. */
+export function createReaderView(
+	ui: ExtensionUiHost,
+	theme: ExtensionTheme,
+	done: () => void,
+	rt: Runtime,
+	doc: OpenDoc,
+	options: ReaderOptions,
+): UiNode {
+	const rev = signal(0);
+	const bump = () => {
+		rev.set(untrack(rev) + 1);
+		ui.requestRender();
+	};
+	const host: ExtensionUiHost = {
+		requestRender: bump,
+		size: () => ui.size(),
+		suspend: run => ui.suspend(run),
+	};
+	const reader = new Reader(host, theme, done, rt, doc, options);
+	onCleanup(() => reader.dispose());
+	const node = new UiNode("canvas", {
+		role: READER_ROLE,
+		paint: (width: number) => {
+			rev();
+			return reader.render(width);
+		},
+		onKey: (key: KeyEvent) => {
+			if (key.kind === "release") return false;
+			reader.handleInput(key.raw);
+			return true;
+		},
+		onPaste: (paste: PasteEvent) => {
+			reader.handleInput(`\x1b[200~${paste.text}\x1b[201~`);
+			return true;
+		},
+	});
+	readerTerms.set(node, { reader, rev });
+	return node;
 }

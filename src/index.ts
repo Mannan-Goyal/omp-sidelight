@@ -1,10 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { Text } from "@oh-my-pi/pi-tui";
+import type { ExtensionAPI, ExtensionContext, ExtensionRows } from "@oh-my-pi/pi-coding-agent";
 import { openerCommand } from "./links";
-import { Reader } from "./reader";
+import { createReaderView } from "./reader";
 import { type OpenDoc, Runtime } from "./runtime";
 import { type DocMeta, SLUG } from "./store";
 import { loadTourState, saveTourState, TOUR_DOC, Tour } from "./tour";
@@ -159,8 +158,8 @@ export default function explain(pi: ExtensionAPI): void {
 		if (offerTour) saveTourState({ offered: true });
 		let startTour = false;
 		await ctx.ui.custom<void>(
-			(tui, theme, _keybindings, done) =>
-				new Reader(tui, theme, () => done(undefined), rt, doc, {
+			(ui, theme, _keybindings, done) =>
+				createReaderView(ui, theme, () => done(undefined), rt, doc, {
 					openUrl,
 					tour: tour ? new Tour() : undefined,
 					offerTour,
@@ -170,7 +169,7 @@ export default function explain(pi: ExtensionAPI): void {
 				}),
 			{
 				overlay: true,
-				overlayOptions: { anchor: "bottom-center", width: "100%", maxHeight: "100%", margin: 0, fullscreen: true },
+				fullscreen: true,
 			},
 		);
 		if (startTour) await openTour(ctx);
@@ -262,13 +261,13 @@ export default function explain(pi: ExtensionAPI): void {
 				details,
 			};
 		},
-		renderResult(result, _options, theme) {
+		renderResult(result, _options, theme): ExtensionRows {
 			const details = result.details as ExplainDetails | undefined;
-			if (!details) return new Text(theme.fg("muted", "explain"), 1, 0);
+			if (!details) return { render: () => [` ${theme.fg("muted", "explain")}`] };
 			const change = details.version > 1 ? ` · ${details.changedBlocks} changed` : "";
 			const note = details.note ? theme.fg("muted", ` · ${details.note}`) : "";
 			const line = `${theme.fg("accent", "📖 ")}${theme.bold(details.title)}${theme.fg("muted", ` · v${details.version} · ${details.words} words${change}`)}${note}${theme.fg("dim", ` · /read or ${SHORTCUT}`)}`;
-			return new Text(line, 1, 0);
+			return { render: () => [` ${line}`] };
 		},
 	});
 
