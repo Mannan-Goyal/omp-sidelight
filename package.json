@@ -17,7 +17,7 @@
 		"extensions": ["./src/index.ts"]
 	},
 	"engines": {
-		"omp": ">=18.11.0"
+		"omp": ">=19.2.0"
 	},
 	"peerDependencies": {
 		"@oh-my-pi/pi-ai": "*",
